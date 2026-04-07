@@ -10,7 +10,6 @@ from storage import add_booking, get_user_bookings, get_bookings_by_date, cancel
 from languages import t
 from datetime import datetime, timedelta
 
-# Состояния диалога
 LANG, DATE, TIME_START, TIME_END, COMMENT, CANCEL_ID = range(6)
 
 
@@ -31,7 +30,6 @@ def time_to_minutes(ts: str) -> int:
     return h * 60 + m
 
 
-# ─── /start ───────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
@@ -55,7 +53,6 @@ async def choose_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ─── ВЫБОР ДАТЫ ───────────────────────────────────────────
 def date_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     today = datetime.now()
     buttons = []
@@ -119,7 +116,6 @@ async def book_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return TIME_START
 
 
-# ─── ВЫБОР ВРЕМЕНИ ────────────────────────────────────────
 def time_slots_keyboard(prefix: str, date: str, start_time: str = None) -> InlineKeyboardMarkup:
     busy_slots = get_booked_slots(date)
     buttons = []
@@ -202,7 +198,6 @@ async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return COMMENT
 
 
-# ─── КОММЕНТАРИЙ И ПОДТВЕРЖДЕНИЕ ──────────────────────────
 async def book_comment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Пользователь вводит текст — сохраняем и показываем кнопку подтверждения"""
     lang = get_lang(context)
@@ -272,7 +267,6 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-# ─── БРОНИ НА ДЕНЬ ────────────────────────────────────────
 async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     today = datetime.now()
@@ -327,7 +321,6 @@ async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ─── ОТМЕНА БРОНИ ─────────────────────────────────────────
 async def cancel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     user_id = update.effective_user.id
@@ -395,7 +388,6 @@ async def cancel_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ─── MAIN ─────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -432,7 +424,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_conv)]
     )
 
-    # Диалог: брони на день
     date_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("📆 Брони на день|📆 Кунлик бронлар"), bookings_today_start)],
         states={
@@ -441,7 +432,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_conv)]
     )
 
-    # Диалог: отмена брони
     cancel_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("❌ Отменить бронь|❌ Бронни бекор қилиш"), cancel_start)],
         states={
