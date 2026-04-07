@@ -24,29 +24,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── СОЗДАНИЕ БРОНИ ───────────────────────────────────────
-async def book_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def date_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     today = datetime.now()
     buttons = []
     row = []
+    start = page * 15
+    end = start + 15
 
-    for i in range(0, 16):
+    for i in range(start, end):
         day = today + timedelta(days=i)
         label = day.strftime("%d.%m")
         if i == 0:
             label = f"📍{label}"
-        callback = day.strftime("%d.%m.%Y")
-        row.append(InlineKeyboardButton(label, callback_data=f"date_{callback}"))
+        row.append(InlineKeyboardButton(label, callback_data=f"date_{day.strftime('%d.%m.%Y')}"))
         if len(row) == 5:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
 
+    # Навигация
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"datepage_{page - 1}"))
+    nav.append(InlineKeyboardButton(f"▶️ Вперёд", callback_data=f"datepage_{page + 1}"))
+    buttons.append(nav)
+
+    return InlineKeyboardMarkup(buttons)
+
+
+async def book_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📅 Выберите дату бронирования:",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=date_keyboard(0)
     )
+    return DATE
+
+
+from telegram.error import BadRequest
+
+
+async def book_date_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.replace("datepage_", ""))
+    try:
+        await query.edit_message_reply_markup(reply_markup=date_keyboard(page))
+    except BadRequest:
+        pass
     return DATE
 
 
@@ -56,44 +81,13 @@ async def book_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     date = query.data.replace("date_", "")
     context.user_data["date"] = date
-    context.user_data["time_start_cur"] = "09:00"
 
-    bar = render_time_bar("09:00")
     await query.edit_message_text(
-        f"📅 Дата выбрана: *{date}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
+        f"📅 Дата выбрана: *{date}*\n\n🕐 *Выберите время начала:*",
         parse_mode="Markdown",
-        reply_markup=time_keyboard("ts")
+        reply_markup=time_slots_keyboard("ts")
     )
     return TIME_START
-
-
-# ─── ПРОГРЕСС-БАР ─────────────────────────────────────────
-def render_time_bar(current_time: str, start_time: str = None) -> str:
-    DAY_START = 8 * 60  # 08:00
-    DAY_END = 21 * 60  # 21:00
-    TOTAL = DAY_END - DAY_START
-    BAR_LEN = 20
-
-    h, m = map(int, current_time.split(":"))
-    current_total = h * 60 + m
-    pos = max(0, min(BAR_LEN, round((current_total - DAY_START) / TOTAL * BAR_LEN)))
-
-    if start_time:
-        sh, sm = map(int, start_time.split(":"))
-        start_pos = max(0, min(BAR_LEN, round((sh * 60 + sm - DAY_START) / TOTAL * BAR_LEN)))
-        bar_list = list("░" * BAR_LEN)
-        for i in range(start_pos, pos):
-            bar_list[i] = "█"
-        bar = "".join(bar_list)
-    else:
-        bar = "█" * pos + "░" * (BAR_LEN - pos)
-
-    indent = "　" * pos
-    return (
-        f"08:00 {bar} 21:00\n"
-        f"      {indent}^\n"
-        f"      {indent}{current_time}"
-    )
 
 
 def time_to_minutes(t: str) -> int:
@@ -101,113 +95,69 @@ def time_to_minutes(t: str) -> int:
     return h * 60 + m
 
 
-def minutes_to_time(mins: int) -> str:
-    return f"{mins // 60:02d}:{mins % 60:02d}"
-
-
-def time_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("◀️ -15", callback_data=f"{callback_prefix}_minus"),
-        InlineKeyboardButton("✅ Выбрать", callback_data=f"{callback_prefix}_ok"),
-        InlineKeyboardButton("+15 ▶️", callback_data=f"{callback_prefix}_plus"),
-    ]])
-
-
-from telegram.error import BadRequest
+def time_slots_keyboard(prefix: str, selected: str = None, start_time: str = None) -> InlineKeyboardMarkup:
+    buttons = []
+    row = []
+    for h in range(9, 18):
+        for m in (0, 30):
+            t = f"{h:02d}:{m:02d}"
+            # Пропускаем слоты раньше или равные времени начала
+            if start_time and time_to_minutes(t) <= time_to_minutes(start_time):
+                continue
+            label = f"✅ {t}" if t == selected else t
+            row.append(InlineKeyboardButton(label, callback_data=f"{prefix}_{t}"))
+            if len(row) == 3:
+                buttons.append(row)
+                row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)
 
 
 async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    action = query.data.replace("ts_", "")
-    cur = context.user_data.get("time_start_cur", "09:00")
-    mins = time_to_minutes(cur)
+    time = query.data.replace("ts_", "")
+    context.user_data["time_start"] = time
 
-    if action == "minus":
-        mins = max(8 * 60, mins - 15)
-    elif action == "plus":
-        mins = min(20 * 60, mins + 15)
-    elif action == "ok":
-        context.user_data["time_start"] = cur
-        end_cur = minutes_to_time(mins + 15)
-        context.user_data["time_end_cur"] = end_cur
-        bar = render_time_bar(end_cur, start_time=cur)
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n"
-            f"✅ Начало: *{cur}*\n\n"
-            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard("te")
-        )
-        return TIME_END
-
-    cur = minutes_to_time(mins)
-    context.user_data["time_start_cur"] = cur
-    bar = render_time_bar(cur)
-    try:
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard("ts")
-        )
-    except BadRequest:
-        pass  # сообщение не изменилось — просто игнорируем
-    return TIME_START
+    await query.edit_message_text(
+        f"📅 Дата: *{context.user_data['date']}*\n"
+        f"✅ Начало: *{time}*\n\n"
+        f"🕕 *Выберите время окончания:*",
+        parse_mode="Markdown",
+        reply_markup=time_slots_keyboard("te", start_time=time)
+    )
+    return TIME_END
 
 
 async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    action = query.data.replace("te_", "")
-    cur = context.user_data.get("time_end_cur", "10:00")
+    time_end = query.data.replace("te_", "")
     time_start = context.user_data["time_start"]
-    mins = time_to_minutes(cur)
-    min_end = time_to_minutes(time_start) + 15
+    date = context.user_data["date"]
 
-    if action == "minus":
-        mins = max(min_end, mins - 15)
-    elif action == "plus":
-        mins = min(21 * 60, mins + 15)
-    elif action == "ok":
-        time_end = cur
-        date = context.user_data["date"]
-        if not is_time_available(date, time_start, time_end):
-            context.user_data["time_start_cur"] = time_start
-            bar = render_time_bar(time_start)
-            await query.edit_message_text(
-                f"❌ *{time_start}–{time_end}* уже занято!\n\n"
-                f"📅 Дата: *{date}*\n\n"
-                f"🕐 *Выберите другое время начала:*\n\n`{bar}`",
-                parse_mode="Markdown",
-                reply_markup=time_keyboard("ts")
-            )
-            return TIME_START
-        context.user_data["time_end"] = time_end
+    if not is_time_available(date, time_start, time_end):
         await query.edit_message_text(
-            f"📅 Дата: *{date}*\n"
-            f"✅ Начало: *{time_start}*\n"
-            f"✅ Конец:  *{time_end}*\n\n"
-            f"💬 Добавьте комментарий или отправьте /skip",
-            parse_mode="Markdown"
-        )
-        return COMMENT
-
-    cur = minutes_to_time(mins)
-    context.user_data["time_end_cur"] = cur
-    bar = render_time_bar(cur, start_time=time_start)
-    try:
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n"
-            f"✅ Начало: *{time_start}*\n\n"
-            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
+            f"❌ *{time_start}–{time_end}* уже занято!\n\n"
+            f"📅 Дата: *{date}*\n\n"
+            f"🕐 *Выберите другое время начала:*",
             parse_mode="Markdown",
-            reply_markup=time_keyboard("te")
+            reply_markup=time_slots_keyboard("ts")
         )
-    except BadRequest:
-        pass  # сообщение не изменилось — просто игнорируем
-    return TIME_END
+        return TIME_START
+
+    context.user_data["time_end"] = time_end
+    await query.edit_message_text(
+        f"📅 Дата: *{date}*\n"
+        f"✅ Начало: *{time_start}*\n"
+        f"✅ Конец:  *{time_end}*\n\n"
+        f"💬 Добавьте комментарий или отправьте /skip",
+        parse_mode="Markdown"
+    )
+    return COMMENT
 
 
 async def book_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -371,7 +321,6 @@ async def cancel_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ─── MAIN ─────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -379,7 +328,8 @@ def main():
     book_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("📅 Забронировать"), book_start)],
         states={
-            DATE: [CallbackQueryHandler(book_date, pattern="^date_")],
+            DATE: [CallbackQueryHandler(book_date, pattern="^date_"),
+                   CallbackQueryHandler(book_date_page, pattern="^datepage_"), ],
             TIME_START: [CallbackQueryHandler(book_time_start_cb, pattern="^ts_")],
             TIME_END: [CallbackQueryHandler(book_time_end_cb, pattern="^te_")],
             COMMENT: [
