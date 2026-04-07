@@ -70,3 +70,20 @@ def is_time_available(date, time_start, time_end):
         if not (new_end <= b_start or new_start >= b_end):
             return False
     return True
+
+def get_booked_slots(date: str) -> list:
+    """Возвращает список занятых временных слотов на дату"""
+    bookings = get_bookings_by_date(date)
+    busy = set()
+    for b in bookings:
+        start = time_to_minutes_storage(b["time_start"])
+        end = time_to_minutes_storage(b["time_end"])
+        t = start
+        while t < end:
+            busy.add(f"{t // 60:02d}:{t % 60:02d}")
+            t += 30
+    return list(busy)
+
+def time_to_minutes_storage(t: str) -> int:
+    h, m = map(int, t.split(":"))
+    return h * 60 + m

@@ -3,27 +3,59 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     ConversationHandler, ContextTypes, filters, CallbackQueryHandler
 )
+from telegram.error import BadRequest
 from config import BOT_TOKEN
-from storage import add_booking, get_user_bookings, get_bookings_by_date, cancel_booking, is_time_available
+from storage import add_booking, get_user_bookings, get_bookings_by_date, cancel_booking, is_time_available, \
+    get_booked_slots
+from languages import t
 from datetime import datetime, timedelta
 
 # Состояния диалога
-DATE, TIME_START, TIME_END, COMMENT, CANCEL_ID = range(5)
+LANG, DATE, TIME_START, TIME_END, COMMENT, CANCEL_ID = range(6)
 
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [["📅 Забронировать", "❌ Отменить бронь"], ["📋 Мои брони", "📆 Брони на день"]],
-    resize_keyboard=True
-)
+
+def get_lang(context) -> str:
+    return context.user_data.get("lang", "ru")
+
+
+def main_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[t(lang, "btn_book"), t(lang, "btn_cancel")],
+         [t(lang, "btn_my"), t(lang, "btn_day")]],
+        resize_keyboard=True
+    )
+
+
+def time_to_minutes(ts: str) -> int:
+    h, m = map(int, ts.split(":"))
+    return h * 60 + m
 
 
 # ─── /start ───────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Привет! Я бот для бронирования переговорной комнаты.\n\nВыберите действие:",
-        reply_markup=MAIN_KEYBOARD
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
+        InlineKeyboardButton("🇺🇿 Ўзбекча", callback_data="lang_uz"),
+    ]])
+    await update.message.reply_text("🌐 Выберите язык / Tilni tanlang:", reply_markup=keyboard)
+    return LANG
+
+
+async def choose_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = query.data.replace("lang_", "")
+    context.user_data["lang"] = lang
+    await query.edit_message_text(t(lang, "welcome"))
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=t(lang, "select_action"),
+        reply_markup=main_keyboard(lang)
     )
+    return ConversationHandler.END
 
 
+# ─── ВЫБОР ДАТЫ ───────────────────────────────────────────
 def date_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     today = datetime.now()
     buttons = []
@@ -43,25 +75,22 @@ def date_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     if row:
         buttons.append(row)
 
-    # Навигация
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"datepage_{page - 1}"))
-    nav.append(InlineKeyboardButton(f"▶️ Вперёд", callback_data=f"datepage_{page + 1}"))
+        nav.append(InlineKeyboardButton("◀️", callback_data=f"datepage_{page - 1}"))
+    nav.append(InlineKeyboardButton("▶️", callback_data=f"datepage_{page + 1}"))
     buttons.append(nav)
 
     return InlineKeyboardMarkup(buttons)
 
 
 async def book_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = get_lang(context)
     await update.message.reply_text(
-        "📅 Выберите дату бронирования:",
+        t(lang, "choose_date"),
         reply_markup=date_keyboard(0)
     )
     return DATE
-
-
-from telegram.error import BadRequest
 
 
 async def book_date_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,55 +107,65 @@ async def book_date_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def book_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
+    lang = get_lang(context)
     date = query.data.replace("date_", "")
     context.user_data["date"] = date
 
     await query.edit_message_text(
-        f"📅 Дата выбрана: *{date}*\n\n🕐 *Выберите время начала:*",
+        f"{t(lang, 'date_chosen', date=date)}\n\n{t(lang, 'choose_time_start')}",
         parse_mode="Markdown",
-        reply_markup=time_slots_keyboard("ts")
+        reply_markup=time_slots_keyboard("ts", date)
     )
     return TIME_START
 
 
-def time_to_minutes(t: str) -> int:
-    h, m = map(int, t.split(":"))
-    return h * 60 + m
-
-
-def time_slots_keyboard(prefix: str, selected: str = None, start_time: str = None) -> InlineKeyboardMarkup:
+# ─── ВЫБОР ВРЕМЕНИ ────────────────────────────────────────
+def time_slots_keyboard(prefix: str, date: str, start_time: str = None) -> InlineKeyboardMarkup:
+    busy_slots = get_booked_slots(date)
     buttons = []
     row = []
+
     for h in range(9, 18):
         for m in (0, 30):
-            t = f"{h:02d}:{m:02d}"
-            # Пропускаем слоты раньше или равные времени начала
-            if start_time and time_to_minutes(t) <= time_to_minutes(start_time):
+            t_str = f"{h:02d}:{m:02d}"
+            if start_time and time_to_minutes(t_str) <= time_to_minutes(start_time):
                 continue
-            label = f"✅ {t}" if t == selected else t
-            row.append(InlineKeyboardButton(label, callback_data=f"{prefix}_{t}"))
+            if t_str in busy_slots:
+                label = f"🔴 {t_str}"
+                row.append(InlineKeyboardButton(label, callback_data=f"busy_{t_str}"))
+            else:
+                label = f"🟢 {t_str}"
+                row.append(InlineKeyboardButton(label, callback_data=f"{prefix}_{t_str}"))
             if len(row) == 3:
                 buttons.append(row)
                 row = []
     if row:
         buttons.append(row)
+
     return InlineKeyboardMarkup(buttons)
+
+
+async def busy_slot_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    lang = get_lang(context)
+    msg = "🔴 Это время уже занято!" if lang == "ru" else "🔴 Бу вақт банд!"
+    await query.answer(msg, show_alert=True)
 
 
 async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
+    lang = get_lang(context)
     time = query.data.replace("ts_", "")
     context.user_data["time_start"] = time
+    date = context.user_data["date"]
 
     await query.edit_message_text(
-        f"📅 Дата: *{context.user_data['date']}*\n"
-        f"✅ Начало: *{time}*\n\n"
-        f"🕕 *Выберите время окончания:*",
+        f"{t(lang, 'date_chosen', date=date)}\n"
+        f"{t(lang, 'time_start_chosen', time=time)}\n\n"
+        f"{t(lang, 'choose_time_end')}",
         parse_mode="Markdown",
-        reply_markup=time_slots_keyboard("te", start_time=time)
+        reply_markup=time_slots_keyboard("te", date, start_time=time)
     )
     return TIME_END
 
@@ -134,64 +173,96 @@ async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
+    lang = get_lang(context)
     time_end = query.data.replace("te_", "")
     time_start = context.user_data["time_start"]
     date = context.user_data["date"]
 
     if not is_time_available(date, time_start, time_end):
         await query.edit_message_text(
-            f"❌ *{time_start}–{time_end}* уже занято!\n\n"
-            f"📅 Дата: *{date}*\n\n"
-            f"🕐 *Выберите другое время начала:*",
+            t(lang, "time_busy", start=time_start, end=time_end, date=date),
             parse_mode="Markdown",
-            reply_markup=time_slots_keyboard("ts")
+            reply_markup=time_slots_keyboard("ts", date)
         )
         return TIME_START
 
     context.user_data["time_end"] = time_end
+    context.user_data["comment"] = ""
+
     await query.edit_message_text(
-        f"📅 Дата: *{date}*\n"
-        f"✅ Начало: *{time_start}*\n"
-        f"✅ Конец:  *{time_end}*\n\n"
-        f"💬 Добавьте комментарий или отправьте /skip",
-        parse_mode="Markdown"
+        f"{t(lang, 'date_chosen', date=date)}\n"
+        f"{t(lang, 'time_start_chosen', time=time_start)}\n"
+        f"{t(lang, 'time_end_chosen', time=time_end)}\n\n"
+        f"{t(lang, 'enter_comment')}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(t(lang, "confirm_btn"), callback_data="comment_confirm")
+        ]])
     )
     return COMMENT
 
 
-async def book_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    comment = "" if update.message.text == "/skip" else update.message.text.strip()
+# ─── КОММЕНТАРИЙ И ПОДТВЕРЖДЕНИЕ ──────────────────────────
+async def book_comment_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пользователь вводит текст — сохраняем и показываем кнопку подтверждения"""
+    lang = get_lang(context)
+    context.user_data["comment"] = update.message.text.strip()
+    d = context.user_data
+
+    await update.message.reply_text(
+        f"{t(lang, 'date_chosen', date=d['date'])}\n"
+        f"{t(lang, 'time_start_chosen', time=d['time_start'])}\n"
+        f"{t(lang, 'time_end_chosen', time=d['time_end'])}\n"
+        f"💬 {d['comment']}\n\n"
+        f"{t(lang, 'enter_comment')}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(t(lang, "confirm_btn"), callback_data="comment_confirm")
+        ]])
+    )
+    return COMMENT
+
+
+async def book_comment_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Нажата кнопка подтверждения"""
+    query = update.callback_query
+    await query.answer()
+    lang = get_lang(context)
     user = update.effective_user
     d = context.user_data
+    comment = d.get("comment", "")
 
     booking_id = add_booking(
         d["date"], d["time_start"], d["time_end"],
         user.id, user.username or user.first_name, comment
     )
 
-    await update.message.reply_text(
-        f"✅ *Бронирование подтверждено!*\n\n"
-        f"🆔 ID: `{booking_id}`\n"
-        f"📅 Дата: {d['date']}\n"
-        f"🕐 Время: {d['time_start']} — {d['time_end']}\n"
-        f"💬 Тема: {comment or '—'}",
-        parse_mode="Markdown",
-        reply_markup=MAIN_KEYBOARD
+    await query.edit_message_text(
+        t(lang, "booking_confirmed",
+          id=booking_id, date=d["date"],
+          start=d["time_start"], end=d["time_end"],
+          comment=comment or "—"),
+        parse_mode="Markdown"
+    )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=t(lang, "select_action"),
+        reply_markup=main_keyboard(lang)
     )
     return ConversationHandler.END
 
 
 # ─── МОИ БРОНИ ────────────────────────────────────────────
 async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = get_lang(context)
     user_id = update.effective_user.id
     bookings = get_user_bookings(user_id)
 
     if not bookings:
-        await update.message.reply_text("📭 У вас нет активных бронирований.")
+        await update.message.reply_text(t(lang, "no_bookings"))
         return
 
-    text = "📋 *Ваши бронирования:*\n\n"
+    text = t(lang, "my_bookings")
     for b in bookings:
         text += f"🆔 `{b['id']}` | {b['date']} | {b['time_start']}–{b['time_end']}"
         if b.get("comment"):
@@ -203,6 +274,7 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── БРОНИ НА ДЕНЬ ────────────────────────────────────────
 async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = get_lang(context)
     today = datetime.now()
     buttons = []
     row = []
@@ -212,8 +284,7 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
         label = day.strftime("%d.%m")
         if i == 0:
             label = f"📍{label}"
-        callback = day.strftime("%d.%m.%Y")
-        row.append(InlineKeyboardButton(label, callback_data=f"view_{callback}"))
+        row.append(InlineKeyboardButton(label, callback_data=f"view_{day.strftime('%d.%m.%Y')}"))
         if len(row) == 5:
             buttons.append(row)
             row = []
@@ -221,7 +292,7 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
         buttons.append(row)
 
     await update.message.reply_text(
-        "📆 Выберите дату для просмотра броней:",
+        t(lang, "choose_date_view"),
         reply_markup=InlineKeyboardMarkup(buttons)
     )
     return DATE
@@ -230,17 +301,17 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
 async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
+    lang = get_lang(context)
     date = query.data.replace("view_", "")
     bookings = get_bookings_by_date(date)
 
     if not bookings:
         await query.edit_message_text(
-            f"📭 На *{date}* бронирований нет. Комната свободна! 🟢",
+            t(lang, "no_bookings_date", date=date),
             parse_mode="Markdown"
         )
     else:
-        text = f"📆 *Бронирования на {date}:*\n\n"
+        text = t(lang, "bookings_date", date=date)
         for b in sorted(bookings, key=lambda x: x["time_start"]):
             text += f"🕐 {b['time_start']}–{b['time_end']} | @{b['username']}"
             if b.get("comment"):
@@ -250,21 +321,22 @@ async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Выберите действие:",
-        reply_markup=MAIN_KEYBOARD
+        text=t(lang, "select_action"),
+        reply_markup=main_keyboard(lang)
     )
     return ConversationHandler.END
 
 
 # ─── ОТМЕНА БРОНИ ─────────────────────────────────────────
 async def cancel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = get_lang(context)
     user_id = update.effective_user.id
     bookings = get_user_bookings(user_id)
 
     if not bookings:
         await update.message.reply_text(
-            "📭 У вас нет активных бронирований.",
-            reply_markup=MAIN_KEYBOARD
+            t(lang, "no_bookings"),
+            reply_markup=main_keyboard(lang)
         )
         return ConversationHandler.END
 
@@ -275,10 +347,10 @@ async def cancel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label += f" ({b['comment']})"
         buttons.append([InlineKeyboardButton(label, callback_data=f"cancel_{b['id']}")])
 
-    buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="cancel_back")])
+    buttons.append([InlineKeyboardButton(t(lang, "btn_back"), callback_data="cancel_back")])
 
     await update.message.reply_text(
-        "❌ Выберите бронирование для отмены:",
+        t(lang, "choose_cancel"),
         reply_markup=InlineKeyboardMarkup(buttons)
     )
     return CANCEL_ID
@@ -287,13 +359,14 @@ async def cancel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang = get_lang(context)
 
     if query.data == "cancel_back":
-        await query.edit_message_text("Действие отменено.")
+        await query.edit_message_text(t(lang, "cancelled"))
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Выберите действие:",
-            reply_markup=MAIN_KEYBOARD
+            text=t(lang, "select_action"),
+            reply_markup=main_keyboard(lang)
         )
         return ConversationHandler.END
 
@@ -302,39 +375,58 @@ async def cancel_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if cancel_booking(booking_id, user_id):
         await query.edit_message_text(
-            f"✅ Бронирование `{booking_id}` отменено.",
+            t(lang, "cancel_confirmed", id=booking_id),
             parse_mode="Markdown"
         )
     else:
-        await query.edit_message_text("❌ Не удалось отменить бронирование.")
+        await query.edit_message_text(t(lang, "cancel_failed"))
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Выберите действие:",
-        reply_markup=MAIN_KEYBOARD
+        text=t(lang, "select_action"),
+        reply_markup=main_keyboard(lang)
     )
     return ConversationHandler.END
 
 
 async def cancel_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Действие отменено.", reply_markup=MAIN_KEYBOARD)
+    lang = get_lang(context)
+    await update.message.reply_text(t(lang, "cancelled"), reply_markup=main_keyboard(lang))
     return ConversationHandler.END
 
 
+# ─── MAIN ─────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # Диалог: выбор языка
+    lang_conv = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            LANG: [CallbackQueryHandler(choose_lang, pattern="^lang_")],
+        },
+        fallbacks=[]
+    )
+
     # Диалог: создание брони
     book_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("📅 Забронировать"), book_start)],
+        entry_points=[MessageHandler(filters.Regex("📅 Забронировать|📅 Бронлаш"), book_start)],
         states={
-            DATE: [CallbackQueryHandler(book_date, pattern="^date_"),
-                   CallbackQueryHandler(book_date_page, pattern="^datepage_"), ],
-            TIME_START: [CallbackQueryHandler(book_time_start_cb, pattern="^ts_")],
-            TIME_END: [CallbackQueryHandler(book_time_end_cb, pattern="^te_")],
+            DATE: [
+                CallbackQueryHandler(book_date, pattern="^date_"),
+                CallbackQueryHandler(book_date_page, pattern="^datepage_"),
+            ],
+            TIME_START: [
+                CallbackQueryHandler(book_time_start_cb, pattern="^ts_"),
+                CallbackQueryHandler(busy_slot_cb, pattern="^busy_"),
+            ],
+            TIME_END: [
+                CallbackQueryHandler(book_time_end_cb, pattern="^te_"),
+                CallbackQueryHandler(busy_slot_cb, pattern="^busy_"),
+            ],
             COMMENT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, book_comment),
-                CommandHandler("skip", book_comment)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, book_comment_text),
+                CallbackQueryHandler(book_comment_confirm, pattern="^comment_confirm"),
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_conv)]
@@ -342,7 +434,7 @@ def main():
 
     # Диалог: брони на день
     date_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("📆 Брони на день"), bookings_today_start)],
+        entry_points=[MessageHandler(filters.Regex("📆 Брони на день|📆 Кунлик бронлар"), bookings_today_start)],
         states={
             DATE: [CallbackQueryHandler(bookings_by_date, pattern="^view_")],
         },
@@ -351,18 +443,18 @@ def main():
 
     # Диалог: отмена брони
     cancel_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("❌ Отменить бронь"), cancel_start)],
+        entry_points=[MessageHandler(filters.Regex("❌ Отменить бронь|❌ Бронни бекор қилиш"), cancel_start)],
         states={
             CANCEL_ID: [CallbackQueryHandler(cancel_confirm, pattern="^cancel_")],
         },
         fallbacks=[CommandHandler("cancel", cancel_conv)]
     )
 
-    app.add_handler(CommandHandler("start", start))
+    app.add_handler(lang_conv)
     app.add_handler(book_conv)
     app.add_handler(date_conv)
     app.add_handler(cancel_conv_handler)
-    app.add_handler(MessageHandler(filters.Regex("📋 Мои брони"), my_bookings))
+    app.add_handler(MessageHandler(filters.Regex("📋 Мои брони|📋 Менинг бронларим"), my_bookings))
 
     print("🤖 Бот запущен...")
     app.run_polling()
