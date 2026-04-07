@@ -107,9 +107,9 @@ def minutes_to_time(mins: int) -> str:
 
 def time_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("◀️ -30", callback_data=f"{callback_prefix}_minus"),
+        InlineKeyboardButton("◀️ -15", callback_data=f"{callback_prefix}_minus"),
         InlineKeyboardButton("✅ Выбрать", callback_data=f"{callback_prefix}_ok"),
-        InlineKeyboardButton("+30 ▶️", callback_data=f"{callback_prefix}_plus"),
+        InlineKeyboardButton("+15 ▶️", callback_data=f"{callback_prefix}_plus"),
     ]])
 
 
