@@ -1,11 +1,11 @@
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     ConversationHandler, ContextTypes, filters
 )
 from config import BOT_TOKEN
 from storage import add_booking, get_user_bookings, get_bookings_by_date, cancel_booking, is_time_available
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Состояния диалога
 DATE, TIME_START, TIME_END, COMMENT, CANCEL_ID = range(5)
@@ -23,24 +23,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── СОЗДАНИЕ БРОНИ ───────────────────────────────────────
 async def book_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    today = datetime.now()
+    buttons = []
+    row = []
+
+    for i in range(-15, 16):
+        day = today + timedelta(days=i)
+        label = day.strftime("%d.%m")
+        if i == 0:
+            label = f"📍 {label}"  # отмечаем сегодня
+        callback = day.strftime("%d.%m.%Y")
+        row.append(InlineKeyboardButton(label, callback_data=f"date_{callback}"))
+        if len(row) == 5:  # 5 кнопок в строке
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
     await update.message.reply_text(
-        "📅 Введите дату бронирования в формате ДД.ММ.ГГГГ\nПример: 10.04.2025",
-        reply_markup=ReplyKeyboardRemove()
+        "📅 Выберите дату бронирования:",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
     return DATE
 
 
 async def book_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        date = datetime.strptime(update.message.text.strip(), "%d.%m.%Y").strftime("%d.%m.%Y")
-        context.user_data["date"] = date
-        await update.message.reply_text("🕐 Введите время начала (формат ЧЧ:ММ)\nПример: 10:00")
-        return TIME_START
-    except ValueError:
-        await update.message.reply_text("❌ Неверный формат даты. Попробуйте ещё раз (ДД.ММ.ГГГГ):")
-        return DATE
+    query = update.callback_query
+    await query.answer()
+
+    date = query.data.replace("date_", "")
+    context.user_data["date"] = date
+
+    await query.edit_message_text(f"📅 Дата: {date}\n\n🕐 Введите время начала (формат ЧЧ:ММ)\nПример: 10:00")
+    return TIME_START
 
 
 async def book_time_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
