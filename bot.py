@@ -113,7 +113,9 @@ def time_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
     ]])
 
 
-# ─── ВРЕМЯ НАЧАЛА ─────────────────────────────────────────
+from telegram.error import BadRequest
+
+
 async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -123,32 +125,12 @@ async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE)
     mins = time_to_minutes(cur)
 
     if action == "minus":
-        mins = max(8 * 60, mins - 30)
-        cur = minutes_to_time(mins)
-        context.user_data["time_start_cur"] = cur
-        bar = render_time_bar(cur)
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard("ts")
-        )
-        return TIME_START
-
+        mins = max(8 * 60, mins - 15)
     elif action == "plus":
-        mins = min(20 * 60, mins + 30)
-        cur = minutes_to_time(mins)
-        context.user_data["time_start_cur"] = cur
-        bar = render_time_bar(cur)
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard("ts")
-        )
-        return TIME_START
-
+        mins = min(20 * 60, mins + 15)
     elif action == "ok":
         context.user_data["time_start"] = cur
-        end_cur = minutes_to_time(mins + 30)
+        end_cur = minutes_to_time(mins + 15)
         context.user_data["time_end_cur"] = end_cur
         bar = render_time_bar(end_cur, start_time=cur)
         await query.edit_message_text(
@@ -160,8 +142,20 @@ async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return TIME_END
 
+    cur = minutes_to_time(mins)
+    context.user_data["time_start_cur"] = cur
+    bar = render_time_bar(cur)
+    try:
+        await query.edit_message_text(
+            f"📅 Дата: *{context.user_data['date']}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard("ts")
+        )
+    except BadRequest:
+        pass  # сообщение не изменилось — просто игнорируем
+    return TIME_START
 
-# ─── ВРЕМЯ ОКОНЧАНИЯ ──────────────────────────────────────
+
 async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -170,40 +164,15 @@ async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur = context.user_data.get("time_end_cur", "10:00")
     time_start = context.user_data["time_start"]
     mins = time_to_minutes(cur)
-    min_end = time_to_minutes(time_start) + 30
+    min_end = time_to_minutes(time_start) + 15
 
     if action == "minus":
-        mins = max(min_end, mins - 30)
-        cur = minutes_to_time(mins)
-        context.user_data["time_end_cur"] = cur
-        bar = render_time_bar(cur, start_time=time_start)
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n"
-            f"✅ Начало: *{time_start}*\n\n"
-            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard("te")
-        )
-        return TIME_END
-
+        mins = max(min_end, mins - 15)
     elif action == "plus":
-        mins = min(21 * 60, mins + 30)
-        cur = minutes_to_time(mins)
-        context.user_data["time_end_cur"] = cur
-        bar = render_time_bar(cur, start_time=time_start)
-        await query.edit_message_text(
-            f"📅 Дата: *{context.user_data['date']}*\n"
-            f"✅ Начало: *{time_start}*\n\n"
-            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard("te")
-        )
-        return TIME_END
-
+        mins = min(21 * 60, mins + 15)
     elif action == "ok":
         time_end = cur
         date = context.user_data["date"]
-
         if not is_time_available(date, time_start, time_end):
             context.user_data["time_start_cur"] = time_start
             bar = render_time_bar(time_start)
@@ -215,16 +184,30 @@ async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=time_keyboard("ts")
             )
             return TIME_START
-
         context.user_data["time_end"] = time_end
         await query.edit_message_text(
             f"📅 Дата: *{date}*\n"
             f"✅ Начало: *{time_start}*\n"
             f"✅ Конец:  *{time_end}*\n\n"
-            f"💬 Добавьте комментарий (тема встречи) или отправьте /skip",
+            f"💬 Добавьте комментарий или отправьте /skip",
             parse_mode="Markdown"
         )
         return COMMENT
+
+    cur = minutes_to_time(mins)
+    context.user_data["time_end_cur"] = cur
+    bar = render_time_bar(cur, start_time=time_start)
+    try:
+        await query.edit_message_text(
+            f"📅 Дата: *{context.user_data['date']}*\n"
+            f"✅ Начало: *{time_start}*\n\n"
+            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard("te")
+        )
+    except BadRequest:
+        pass  # сообщение не изменилось — просто игнорируем
+    return TIME_END
 
 
 async def book_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
