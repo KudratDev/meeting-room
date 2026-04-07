@@ -257,11 +257,19 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
+    await update.message.reply_text(
+        t(lang, "choose_date_view"),
+        reply_markup=view_date_keyboard(0)
+    )
+    return VIEW_DATE
+
+
+def view_date_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     today = datetime.now()
     buttons = []
     row = []
 
-    for i in range(0, 15):
+    for i in range(page * 15, page * 15 + 15):
         day = today + timedelta(days=i)
         label = ("📍" if i == 0 else "") + day.strftime("%d.%m")
         row.append(InlineKeyboardButton(label, callback_data=f"view_{day.strftime('%d.%m.%Y')}"))
@@ -271,10 +279,23 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
     if row:
         buttons.append(row)
 
-    await update.message.reply_text(
-        t(lang, "choose_date_view"),
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️", callback_data=f"viewpage_{page - 1}"))
+    nav.append(InlineKeyboardButton("▶️", callback_data=f"viewpage_{page + 1}"))
+    buttons.append(nav)
+
+    return InlineKeyboardMarkup(buttons)
+
+
+async def book_view_date_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.replace("viewpage_", ""))
+    try:
+        await query.edit_message_reply_markup(reply_markup=view_date_keyboard(page))
+    except BadRequest:
+        pass
     return VIEW_DATE
 
 
@@ -369,6 +390,10 @@ async def cancel_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
+    async def silent_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data.clear()
+        return ConversationHandler.END
+
     lang_conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -402,7 +427,7 @@ def main():
             MessageHandler(
                 filters.Regex(
                     "^(📅 Забронировать|📅 Бронлаш|❌ Отменить бронь|❌ Бронни бекор қилиш|📋 Мои брони|📋 Менинг бронларим|📆 Брони на день|📆 Кунлик бронлар)$"),
-                cancel_conv
+                silent_cancel
             ),
         ],
         allow_reentry=True,
@@ -412,14 +437,17 @@ def main():
     date_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(📆 Брони на день|📆 Кунлик бронлар)$"), bookings_today_start)],
         states={
-            VIEW_DATE: [CallbackQueryHandler(bookings_by_date, pattern="^view_")],
+            VIEW_DATE: [
+                CallbackQueryHandler(bookings_by_date, pattern="^view_\d"),
+                CallbackQueryHandler(book_view_date_page, pattern="^viewpage_"),
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel_conv),
             MessageHandler(
                 filters.Regex(
                     "^(📅 Забронировать|📅 Бронлаш|❌ Отменить бронь|❌ Бронни бекор қилиш|📋 Мои брони|📋 Менинг бронларим|📆 Брони на день|📆 Кунлик бронлар)$"),
-                cancel_conv
+                silent_cancel
             ),
         ],
         allow_reentry=True,
@@ -436,7 +464,7 @@ def main():
             MessageHandler(
                 filters.Regex(
                     "^(📅 Забронировать|📅 Бронлаш|❌ Отменить бронь|❌ Бронни бекор қилиш|📋 Мои брони|📋 Менинг бронларим|📆 Брони на день|📆 Кунлик бронлар)$"),
-                cancel_conv
+                silent_cancel
             ),
         ],
         allow_reentry=True,
