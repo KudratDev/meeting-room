@@ -10,7 +10,7 @@ from storage import add_booking, get_user_bookings, get_bookings_by_date, cancel
 from languages import t
 from datetime import datetime, timedelta
 
-LANG, DATE, TIME_START, TIME_END, COMMENT, CANCEL_ID = range(6)
+LANG, DATE, TIME_START, TIME_END, COMMENT, CANCEL_ID, VIEW_DATE = range(7)
 
 
 def get_lang(context) -> str:
@@ -289,7 +289,7 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
         t(lang, "choose_date_view"),
         reply_markup=InlineKeyboardMarkup(buttons)
     )
-    return DATE
+    return VIEW_DATE
 
 
 async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -427,7 +427,7 @@ def main():
     date_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("📆 Брони на день|📆 Кунлик бронлар"), bookings_today_start)],
         states={
-            DATE: [CallbackQueryHandler(bookings_by_date, pattern="^view_")],
+            VIEW_DATE: [CallbackQueryHandler(bookings_by_date, pattern="^view_")],
         },
         fallbacks=[CommandHandler("cancel", cancel_conv)]
     )
