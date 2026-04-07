@@ -148,7 +148,25 @@ async def book_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def busy_slot_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     lang = get_lang(context)
-    msg = "🔴 Это время уже занято!" if lang == "ru" else "🔴 Бу вақт банд!"
+    t_str = query.data.replace("busy_", "")
+    date = context.user_data.get("date", "")
+
+    owner = None
+    if date:
+        bookings = get_bookings_by_date(date)
+        for b in bookings:
+            if time_to_minutes(b["time_start"]) <= time_to_minutes(t_str) < time_to_minutes(b["time_end"]):
+                owner = b.get("username")
+                break
+
+    if lang == "ru":
+        msg = "🔴 Это время уже занято!"
+    else:
+        msg = "🔴 Бу вақт банд!"
+
+    if owner:
+        msg += f" @{owner}"
+
     await query.answer(msg, show_alert=True)
 
 
