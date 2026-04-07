@@ -414,7 +414,15 @@ def main():
         states={
             VIEW_DATE: [CallbackQueryHandler(bookings_by_date, pattern="^view_")],
         },
-        fallbacks=[CommandHandler("cancel", cancel_conv)],
+        fallbacks=[
+            CommandHandler("cancel", cancel_conv),
+            MessageHandler(
+                filters.Regex(
+                    "^(📅 Забронировать|📅 Бронлаш|❌ Отменить бронь|❌ Бронни бекор қилиш|📋 Мои брони|📋 Менинг бронларим|📆 Брони на день|📆 Кунлик бронлар)$"),
+                cancel_conv
+            ),
+        ],
+        allow_reentry=True,
         per_message=False
     )
 
@@ -423,7 +431,15 @@ def main():
         states={
             CANCEL_ID: [CallbackQueryHandler(cancel_confirm, pattern="^cancel_")],
         },
-        fallbacks=[CommandHandler("cancel", cancel_conv)],
+        fallbacks=[
+            CommandHandler("cancel", cancel_conv),
+            MessageHandler(
+                filters.Regex(
+                    "^(📅 Забронировать|📅 Бронлаш|❌ Отменить бронь|❌ Бронни бекор қилиш|📋 Мои брони|📋 Менинг бронларим|📆 Брони на день|📆 Кунлик бронлар)$"),
+                cancel_conv
+            ),
+        ],
+        allow_reentry=True,
         per_message=False
     )
 
