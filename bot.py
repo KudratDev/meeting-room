@@ -295,6 +295,7 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
 async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    print(f"DEBUG bookings_by_date: {query.data}")
     lang = get_lang(context)
     date = query.data.replace("view_", "")
     bookings = get_bookings_by_date(date)
@@ -441,8 +442,8 @@ def main():
     )
 
     app.add_handler(lang_conv)
-    app.add_handler(book_conv)
     app.add_handler(date_conv)
+    app.add_handler(book_conv)
     app.add_handler(cancel_conv_handler)
     app.add_handler(MessageHandler(filters.Regex("📋 Мои брони|📋 Менинг бронларим"), my_bookings))
 
