@@ -88,9 +88,11 @@ def time_slots_keyboard(prefix: str, date: str, start_time: str = None) -> Inlin
     buttons = []
     row = []
 
-    for h in range(9, 18):
+    for h in range(9, 19):
         for m in (0, 30):
             t_str = f"{h:02d}:{m:02d}"
+            if t_str == "18:30":
+                continue
             if start_time and time_to_minutes(t_str) <= time_to_minutes(start_time):
                 continue
             if t_str in busy_slots:
