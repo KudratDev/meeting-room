@@ -56,16 +56,19 @@ async def book_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     date = query.data.replace("date_", "")
     context.user_data["date"] = date
+    context.user_data["time_start_cur"] = "09:00"
 
+    bar = render_time_bar("09:00")
     await query.edit_message_text(
-        f"📅 Дата выбрана: *{date}*\n\n🕐 Введите время начала (формат ЧЧ:ММ)\nПример: `10:00`",
-        parse_mode="Markdown"
+        f"📅 Дата выбрана: *{date}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
+        parse_mode="Markdown",
+        reply_markup=time_keyboard("ts")
     )
     return TIME_START
 
 
+# ─── ПРОГРЕСС-БАР ─────────────────────────────────────────
 def render_time_bar(current_time: str, start_time: str = None) -> str:
-    """Рендерит прогресс-бар для выбора времени"""
     DAY_START = 8 * 60  # 08:00
     DAY_END = 21 * 60  # 21:00
     TOTAL = DAY_END - DAY_START
@@ -75,8 +78,6 @@ def render_time_bar(current_time: str, start_time: str = None) -> str:
     current_total = h * 60 + m
     pos = max(0, min(BAR_LEN, round((current_total - DAY_START) / TOTAL * BAR_LEN)))
 
-    bar = "█" * pos + "░" * (BAR_LEN - pos)
-
     if start_time:
         sh, sm = map(int, start_time.split(":"))
         start_pos = max(0, min(BAR_LEN, round((sh * 60 + sm - DAY_START) / TOTAL * BAR_LEN)))
@@ -84,11 +85,14 @@ def render_time_bar(current_time: str, start_time: str = None) -> str:
         for i in range(start_pos, pos):
             bar_list[i] = "█"
         bar = "".join(bar_list)
+    else:
+        bar = "█" * pos + "░" * (BAR_LEN - pos)
 
+    indent = "　" * pos
     return (
         f"08:00 {bar} 21:00\n"
-        f"{'　' * (6 + pos)}^\n"
-        f"{'　' * (5 + pos)}{current_time}"
+        f"      {indent}^\n"
+        f"      {indent}{current_time}"
     )
 
 
@@ -110,17 +114,6 @@ def time_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
 
 
 # ─── ВРЕМЯ НАЧАЛА ─────────────────────────────────────────
-async def book_time_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["time_start_cur"] = "09:00"  # дефолт
-    bar = render_time_bar("09:00")
-    await update.callback_query.edit_message_text(
-        f"🕐 *Выберите время начала:*\n\n`{bar}`",
-        parse_mode="Markdown",
-        reply_markup=time_keyboard("ts")
-    )
-    return TIME_START
-
-
 async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -131,28 +124,41 @@ async def book_time_start_cb(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if action == "minus":
         mins = max(8 * 60, mins - 30)
+        cur = minutes_to_time(mins)
+        context.user_data["time_start_cur"] = cur
+        bar = render_time_bar(cur)
+        await query.edit_message_text(
+            f"📅 Дата: *{context.user_data['date']}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard("ts")
+        )
+        return TIME_START
+
     elif action == "plus":
         mins = min(20 * 60, mins + 30)
+        cur = minutes_to_time(mins)
+        context.user_data["time_start_cur"] = cur
+        bar = render_time_bar(cur)
+        await query.edit_message_text(
+            f"📅 Дата: *{context.user_data['date']}*\n\n🕐 *Выберите время начала:*\n\n`{bar}`",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard("ts")
+        )
+        return TIME_START
+
     elif action == "ok":
         context.user_data["time_start"] = cur
-        context.user_data["time_end_cur"] = minutes_to_time(mins + 30)
-        bar = render_time_bar(minutes_to_time(mins + 30), start_time=cur)
+        end_cur = minutes_to_time(mins + 30)
+        context.user_data["time_end_cur"] = end_cur
+        bar = render_time_bar(end_cur, start_time=cur)
         await query.edit_message_text(
-            f"✅ Начало: *{cur}*\n\n🕕 *Выберите время окончания:*\n\n`{bar}`",
+            f"📅 Дата: *{context.user_data['date']}*\n"
+            f"✅ Начало: *{cur}*\n\n"
+            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
             parse_mode="Markdown",
             reply_markup=time_keyboard("te")
         )
         return TIME_END
-
-    cur = minutes_to_time(mins)
-    context.user_data["time_start_cur"] = cur
-    bar = render_time_bar(cur)
-    await query.edit_message_text(
-        f"🕐 *Выберите время начала:*\n\n`{bar}`",
-        parse_mode="Markdown",
-        reply_markup=time_keyboard("ts")
-    )
-    return TIME_START
 
 
 # ─── ВРЕМЯ ОКОНЧАНИЯ ──────────────────────────────────────
@@ -168,41 +174,57 @@ async def book_time_end_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "minus":
         mins = max(min_end, mins - 30)
+        cur = minutes_to_time(mins)
+        context.user_data["time_end_cur"] = cur
+        bar = render_time_bar(cur, start_time=time_start)
+        await query.edit_message_text(
+            f"📅 Дата: *{context.user_data['date']}*\n"
+            f"✅ Начало: *{time_start}*\n\n"
+            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard("te")
+        )
+        return TIME_END
+
     elif action == "plus":
         mins = min(21 * 60, mins + 30)
+        cur = minutes_to_time(mins)
+        context.user_data["time_end_cur"] = cur
+        bar = render_time_bar(cur, start_time=time_start)
+        await query.edit_message_text(
+            f"📅 Дата: *{context.user_data['date']}*\n"
+            f"✅ Начало: *{time_start}*\n\n"
+            f"🕕 *Выберите время окончания:*\n\n`{bar}`",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard("te")
+        )
+        return TIME_END
+
     elif action == "ok":
         time_end = cur
         date = context.user_data["date"]
 
         if not is_time_available(date, time_start, time_end):
+            context.user_data["time_start_cur"] = time_start
+            bar = render_time_bar(time_start)
             await query.edit_message_text(
                 f"❌ *{time_start}–{time_end}* уже занято!\n\n"
-                f"🕐 *Выберите другое время начала:*\n\n"
-                f"`{render_time_bar(time_start)}`",
+                f"📅 Дата: *{date}*\n\n"
+                f"🕐 *Выберите другое время начала:*\n\n`{bar}`",
                 parse_mode="Markdown",
                 reply_markup=time_keyboard("ts")
             )
-            context.user_data["time_start_cur"] = time_start
             return TIME_START
 
         context.user_data["time_end"] = time_end
         await query.edit_message_text(
+            f"📅 Дата: *{date}*\n"
             f"✅ Начало: *{time_start}*\n"
             f"✅ Конец:  *{time_end}*\n\n"
-            f"💬 Добавьте комментарий или отправьте /skip",
+            f"💬 Добавьте комментарий (тема встречи) или отправьте /skip",
             parse_mode="Markdown"
         )
         return COMMENT
-
-    cur = minutes_to_time(mins)
-    context.user_data["time_end_cur"] = cur
-    bar = render_time_bar(cur, start_time=time_start)
-    await query.edit_message_text(
-        f"✅ Начало: *{time_start}*\n\n🕕 *Выберите время окончания:*\n\n`{bar}`",
-        parse_mode="Markdown",
-        reply_markup=time_keyboard("te")
-    )
-    return TIME_END
 
 
 async def book_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -293,7 +315,6 @@ async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "\n"
         await query.edit_message_text(text, parse_mode="Markdown")
 
-    # Показываем главное меню отдельным сообщением
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Выберите действие:",
@@ -314,7 +335,6 @@ async def cancel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Показываем кнопки с бронями пользователя
     buttons = []
     for b in bookings:
         label = f"🗑 {b['date']} {b['time_start']}–{b['time_end']}"
