@@ -93,6 +93,8 @@ def time_slots_keyboard(prefix: str, date: str, start_time: str = None) -> Inlin
             t_str = f"{h:02d}:{m:02d}"
             if t_str == "18:30":
                 continue
+            if t_str == "18:00" and prefix == "ts":
+                continue
             if start_time and time_to_minutes(t_str) <= time_to_minutes(start_time):
                 continue
             if t_str in busy_slots:
