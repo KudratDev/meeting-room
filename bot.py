@@ -397,7 +397,15 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, book_comment_text),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel_conv)],
+        fallbacks=[
+            CommandHandler("cancel", cancel_conv),
+            MessageHandler(
+                filters.Regex(
+                    "^(📅 Забронировать|📅 Бронлаш|❌ Отменить бронь|❌ Бронни бекор қилиш|📋 Мои брони|📋 Менинг бронларим|📆 Брони на день|📆 Кунлик бронлар)$"),
+                cancel_conv
+            ),
+        ],
+        allow_reentry=True,
         per_message=False
     )
 
