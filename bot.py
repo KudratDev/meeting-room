@@ -295,10 +295,15 @@ async def bookings_today_start(update: Update, context: ContextTypes.DEFAULT_TYP
 async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    print(f"DEBUG bookings_by_date: {query.data}")
     lang = get_lang(context)
     date = query.data.replace("view_", "")
     bookings = get_bookings_by_date(date)
+
+    def escape(text: str) -> str:
+        """Экранирует спецсимволы Markdown"""
+        for ch in ["_", "*", "`", "["]:
+            text = text.replace(ch, f"\\{ch}")
+        return text
 
     if not bookings:
         await query.edit_message_text(
@@ -308,9 +313,11 @@ async def bookings_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text = t(lang, "bookings_date", date=date)
         for b in sorted(bookings, key=lambda x: x["time_start"]):
-            text += f"🕐 {b['time_start']}–{b['time_end']} | @{b['username']}"
-            if b.get("comment"):
-                text += f" | _{b['comment']}_"
+            username = escape(str(b.get("username") or "—"))
+            comment = escape(str(b.get("comment") or ""))
+            text += f"🕐 {b['time_start']}–{b['time_end']} | @{username}"
+            if comment:
+                text += f" | {comment}"
             text += "\n"
         await query.edit_message_text(text, parse_mode="Markdown")
 
