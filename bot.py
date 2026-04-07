@@ -30,7 +30,7 @@ async def book_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons = []
     row = []
 
-    for i in range(-15, 16):
+    for i in range(0, 16):
         day = today + timedelta(days=i)
         label = day.strftime("%d.%m")
         if i == 0:
