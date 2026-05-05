@@ -1,63 +1,77 @@
-import openpyxl
-from openpyxl import load_workbook
+import psycopg2
+import psycopg2.extras
 from datetime import datetime
 import uuid
-import os
-
-FILE = "bookings.xlsx"
-HEADERS = ["id", "date", "time_start", "time_end", "user_id", "username", "comment"]
+from config import DATABASE_URL
 
 
-def init_file():
-    """Создаёт файл если не существует"""
-    if not os.path.exists(FILE):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Бронирования"
-        ws.append(HEADERS)
-        wb.save(FILE)
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
+
+
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS bookings (
+                    id VARCHAR(8) PRIMARY KEY,
+                    date VARCHAR(10) NOT NULL,
+                    time_start VARCHAR(5) NOT NULL,
+                    time_end VARCHAR(5) NOT NULL,
+                    user_id VARCHAR(50) NOT NULL,
+                    username VARCHAR(255),
+                    comment TEXT DEFAULT ''
+                )
+            """)
 
 
 def get_all_records():
-    init_file()
-    wb = load_workbook(FILE)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    if len(rows) <= 1:
-        return []
-    headers = rows[0]
-    return [dict(zip(headers, row)) for row in rows[1:]]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, date, time_start, time_end, user_id, username, comment FROM bookings")
+            return [dict(r) for r in cur.fetchall()]
 
 
 def add_booking(date, time_start, time_end, user_id, username, comment=""):
-    init_file()
     booking_id = str(uuid.uuid4())[:8].upper()
-    wb = load_workbook(FILE)
-    ws = wb.active
-    ws.append([booking_id, date, time_start, time_end, str(user_id), username, comment])
-    wb.save(FILE)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO bookings (id, date, time_start, time_end, user_id, username, comment) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (booking_id, date, time_start, time_end, str(user_id), username, comment)
+            )
     return booking_id
 
 
 def get_user_bookings(user_id):
-    return [r for r in get_all_records() if str(r["user_id"]) == str(user_id)]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, date, time_start, time_end, user_id, username, comment FROM bookings WHERE user_id = %s",
+                (str(user_id),)
+            )
+            return [dict(r) for r in cur.fetchall()]
 
 
 def get_bookings_by_date(date):
-    return [r for r in get_all_records() if r["date"] == date]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, date, time_start, time_end, user_id, username, comment FROM bookings WHERE date = %s",
+                (date,)
+            )
+            return [dict(r) for r in cur.fetchall()]
 
 
 def cancel_booking(booking_id, user_id):
-    init_file()
-    wb = load_workbook(FILE)
-    ws = wb.active
-    rows = list(ws.iter_rows())
-    for i, row in enumerate(rows[1:], start=2):  # пропускаем заголовок
-        if str(row[0].value) == booking_id and str(row[4].value) == str(user_id):
-            ws.delete_rows(i)
-            wb.save(FILE)
-            return True
-    return False
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM bookings WHERE id = %s AND user_id = %s",
+                (booking_id, str(user_id))
+            )
+            return cur.rowcount > 0
 
 
 def is_time_available(date, time_start, time_end):
@@ -71,8 +85,8 @@ def is_time_available(date, time_start, time_end):
             return False
     return True
 
+
 def get_booked_slots(date: str) -> list:
-    """Возвращает список занятых временных слотов на дату"""
     bookings = get_bookings_by_date(date)
     busy = set()
     for b in bookings:
@@ -84,6 +98,10 @@ def get_booked_slots(date: str) -> list:
             t += 30
     return list(busy)
 
+
 def time_to_minutes_storage(t: str) -> int:
     h, m = map(int, t.split(":"))
     return h * 60 + m
+
+
+init_db()
